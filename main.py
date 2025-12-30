@@ -32,7 +32,7 @@ except Exception as e:
 class ConcreteInput(BaseModel):
     cement: float
     slag: float
-    ash: float
+    fly_ash: float
     water: float
     superplasticizer: float
     coarse_aggregate: float
@@ -54,7 +54,7 @@ def predict_strength(data: ConcreteInput):
         features = np.array([[
             data.cement,
             data.slag,
-            data.ash,
+            data.fly_ash,
             data.water,
             data.superplasticizer,
             data.coarse_aggregate,
