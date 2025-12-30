@@ -1,112 +1,76 @@
-# main.py
+import joblib
+import numpy as np
+import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import joblib
-import pandas as pd
-import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
-import os
 
-# Initialisation de l'app
-app = FastAPI(title="Concrete Strength API", version="1.0")
+# 1. Initialisation de l'application
+app = FastAPI(title="Concrete Strength API")
 
-# --- Configuration CORS (Pour autoriser ton frontend Next.js) ---
-# On autorise tout pour le développement, mais idéalement, mets l'URL de ton frontend Vercel plus tard.
+# 2. Configuration du CORS (Indispensable pour la connexion avec Next.js)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Autorise toutes les origines
+    allow_origins=["*"],  # Autorise toutes les origines (Vercel, localhost, etc.)
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Autorise POST, GET, etc.
+    allow_headers=["*"],  # Autorise tous les headers
 )
 
-# --- Chargement des artefacts (Modèle et Scaler) ---
-# On utilise des chemins relatifs pour que ça marche en local et sur le cloud
+# 3. Chargement du modèle et du scaler
+# Assure-toi que ces fichiers sont à la racine de ton dossier sur GitHub
 try:
     model = joblib.load("concrete_model.joblib")
-    # Si tu n'as pas retrouvé ton scaler, commente la ligne suivante et les lignes de transformation plus bas
-    # MAIS tes prédictions seront fausses sans le scaler.
-    scaler = joblib.load("reg_scaler.joblib") 
+    scaler = joblib.load("reg_scaler.joblib")
     print("✅ Modèle et Scaler chargés avec succès.")
 except Exception as e:
-    print(f"❌ Erreur lors du chargement du modèle/scaler : {e}")
+    print(f"❌ Erreur de chargement des artefacts : {e}")
     model = None
     scaler = None
 
-# --- Schéma des données (Pydantic) ---
-# Remplace les noms ci-dessous par les noms EXACTS de tes colonnes d'entraînement
-# Je mets ici les noms standards du dataset "Concrete", adapte-les si besoin.
+# 4. Schéma des données d'entrée (Doit correspondre à tes 8 variables)
 class ConcreteInput(BaseModel):
     cement: float
-    blast_furnace_slag: float
-    fly_ash: float
+    slag: float
+    ash: float
     water: float
     superplasticizer: float
     coarse_aggregate: float
     fine_aggregate: float
     age: float
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "cement": 540.0,
-                "blast_furnace_slag": 0.0,
-                "fly_ash": 0.0,
-                "water": 162.0,
-                "superplasticizer": 2.5,
-                "coarse_aggregate": 1040.0,
-                "fine_aggregate": 676.0,
-                "age": 28.0
-            }
-        }
-
-# --- Route de base (Health check) ---
 @app.get("/")
-def home():
-    return {"message": "API Concrete Strength is running properly 🚀"}
+def health_check():
+    return {"status": "online", "message": "API is running"}
 
-
-
-
-
-# --- Route de prédiction ---
 @app.post("/predict")
 def predict_strength(data: ConcreteInput):
-    if not model:
-        raise HTTPException(status_code=500, detail="Model not loaded")
+    if model is None or scaler is None:
+        raise HTTPException(status_code=500, detail="Modèle non chargé sur le serveur.")
 
     try:
-        # 1. Convertir les données reçues en DataFrame
-        # L'ordre des colonnes doit être STRICTEMENT le même que lors de l'entraînement
-        input_data = pd.DataFrame([[
+        # L'ordre ici doit être EXACTEMENT celui utilisé lors de l'entraînement
+        # (D'après ton notebook de preprocessing)
+        features = np.array([[
             data.cement,
-            data.blast_furnace_slag,
-            data.fly_ash,
+            data.slag,
+            data.ash,
             data.water,
             data.superplasticizer,
             data.coarse_aggregate,
             data.fine_aggregate,
             data.age
-        ]], columns=[
-            'cement', 'blast_furnace_slag', 'fly_ash', 'water', 
-            'superplasticizer', 'coarse_aggregate', 'fine_aggregate', 'age'
-        ])
+        ]])
 
-        # 2. Appliquer le scaling (Normalisation)
-        # Si tu n'as pas de scaler, commente ces lignes :
-        if scaler:
-            input_scaled = scaler.transform(input_data)
-        else:
-            input_scaled = input_data
+        # Appliquer le scaling (Crucial car le modèle a été entraîné sur des données scalées)
+        features_scaled = scaler.transform(features)
 
-        # 3. Prédiction
-        prediction = model.predict(input_scaled)
+        # Prédiction
+        prediction = model.predict(features_scaled)
 
-        # 4. Retourner le résultat
         return {
-            "strength_prediction": float(prediction[0]),
+            "prediction": float(prediction[0]),
             "unit": "MPa"
         }
-
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
